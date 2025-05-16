@@ -5,10 +5,10 @@ from rest_framework import status
 from django.utils import timezone
 from decimal import Decimal
 from collections import defaultdict
-from product.models import Product, SupplierProduct, ProductCategory
+from product.models import Product, ProductCategory
 from django.db.models import Sum, F
 from django.db import transaction
-from .models import Warehouse, WarehouseInventory, InventoryTransaction, WarehouseSupplier
+from .models import Warehouse, WarehouseInventory, InventoryTransaction, SupplierProduct
 from .utils.supplier_names import SUPPLIER_NAME_MAP
 from .utils.mock_orders import ORDERS
 from .utils.order_accept_Req import ORDER_REQUEST
@@ -35,7 +35,7 @@ def warehouse_inventory_list(request):
     except Warehouse.DoesNotExist:
         return Response({"error": "Warehouse not found"}, status=404)
 
-    supplier_ids = WarehouseSupplier.objects.filter(warehouse_id=warehouse_id).values_list('supplier_id', flat=True)
+    supplier_ids = SupplierProduct.objects.filter(warehouse_id=warehouse_id).values_list('supplier_id', flat=True)
     inventory_qs = WarehouseInventory.objects.filter(warehouse_id=warehouse_id).select_related('product', 'product__category')
 
     supplier_products = SupplierProduct.objects.filter(
@@ -105,7 +105,7 @@ def supplier_dashboard(request):
     if not supplier_id:
         return Response({"error": "supplier_id required"}, status=400)
 
-    warehouses = WarehouseSupplier.objects.filter(supplier_id=supplier_id).values_list('warehouse_id', flat=True)
+    warehouses = SupplierProduct.objects.filter(supplier_id=supplier_id).values_list('warehouse_id', flat=True)
 
     inventories = (
         WarehouseInventory.objects
@@ -225,7 +225,7 @@ def mark_delivery_received(request):
 
 @api_view(['GET'])
 def get_supplier_products(request, supplier_id):
-    warehouse_ids = WarehouseSupplier.objects.filter(supplier_id=supplier_id).values_list('warehouse_id', flat=True)
+    warehouse_ids = SupplierProduct.objects.filter(supplier_id=supplier_id).values_list('warehouse_id', flat=True)
 
     inventory_qs = WarehouseInventory.objects.filter(warehouse_id__in=warehouse_ids)
 
@@ -256,6 +256,7 @@ def get_supplier_products(request, supplier_id):
 
     return Response(result)
 
+
 @api_view(['GET'])
 def get_supplier_product_prices(request): 
     supplier_id = request.query_params.get('supplier_id')
@@ -265,25 +266,24 @@ def get_supplier_product_prices(request):
     supplier_products = (
         SupplierProduct.objects
         .filter(supplier_id=supplier_id)
-        .select_related('product')
+        .select_related('product', 'warehouse')
         .annotate(
             product_name=F('product__product_name'),
-            SKU=F('product__product_SKU')
+            SKU=F('product__product_SKU'),
+            warehouse_name=F('warehouse__warehouse_name')
         )
-        .values('product_name', 'SKU', 'supplier_price')
     )
 
-    summary = [
-        {
-            "product_name": item['product_name'],
-            "SKU": item['SKU'],
-            "supplier_price": float(item['supplier_price']),
-        }
-        for item in supplier_products
-    ]
+    summary = []
+    for sp in supplier_products:
+        summary.append({
+            "product_name": sp.product_name,
+            "SKU": sp.SKU,
+            "supplier_price": float(sp.supplier_price),
+            "warehouses": [sp.warehouse_name],  # one warehouse per SupplierProduct row
+        })
 
     return Response(summary)
-
 
 
 @api_view(['GET'])
@@ -545,33 +545,28 @@ def add_supplier_product(request):
     supplier_id = data.get("supplier_id")
     product_id = data.get("product_id")
     supplier_price = data.get("supplier_price")
+    maximum_capacity = data.get("maximum_capacity", 0)
+    lead_time_days = data.get("lead_time_days", 5)
 
     if not all([warehouse_id, supplier_id, product_id, supplier_price]):
         return Response({"error": "Missing fields"}, status=status.HTTP_400_BAD_REQUEST)
 
-    ws_exists = WarehouseSupplier.objects.filter(
-        warehouse_id=warehouse_id,
-        supplier_id=supplier_id
-    ).exists()
-
-    if not ws_exists:
-        WarehouseSupplier.objects.create(
-            warehouse_id=warehouse_id,
-            supplier_id=supplier_id
-        )
 
     sp, created = SupplierProduct.objects.get_or_create(
         supplier_id=supplier_id,
         product_id=product_id,
+        warehouse_id=warehouse_id,
         defaults={
             "supplier_price": Decimal(supplier_price),
-            "maximum_capacity": Decimal("0.00"),  # default
-            "lead_time_days": 5  # default
+            "maximum_capacity": maximum_capacity,
+            "lead_time_days": lead_time_days
         }
     )
 
     if not created:
         sp.supplier_price = Decimal(supplier_price)
+        sp.maximum_capacity = maximum_capacity
+        sp.lead_time_days = lead_time_days
         sp.save()
         message = "SupplierProduct updated with new price."
     else:
@@ -581,3 +576,7 @@ def add_supplier_product(request):
         "supplier_product_id": sp.id,
         "message": message
     }, status=status.HTTP_200_OK)
+    
+    
+    
+    
