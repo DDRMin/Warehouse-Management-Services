@@ -547,10 +547,21 @@ def add_supplier_product(request):
     supplier_price = data.get("supplier_price")
     maximum_capacity = data.get("maximum_capacity")
     lead_time_days = data.get("lead_time_days")
+    
+    
+    DEFAULT_PRICE = 0.0
+    DEFAULT_CAPACITY = 0
+    DEFAULT_LEAD_TIME = 0
+    
 
     # Validate required fields
-    if not all([warehouse_id, supplier_id, product_id, supplier_price, maximum_capacity, lead_time_days]):
+    if not all([warehouse_id, supplier_id, product_id]):
         return Response({"error": "Missing required fields"}, status=status.HTTP_400_BAD_REQUEST)
+
+    supplier_price = supplier_price if supplier_price is not None else DEFAULT_PRICE
+    maximum_capacity = maximum_capacity if maximum_capacity is not None else DEFAULT_CAPACITY
+    lead_time_days = lead_time_days if lead_time_days is not None else DEFAULT_LEAD_TIME
+
 
     sp, created = SupplierProduct.objects.get_or_create(
         supplier_id=supplier_id,
@@ -567,13 +578,13 @@ def add_supplier_product(request):
 
     if not created:
         # Only update changed fields
-        if supplier_price is not None and sp.supplier_price != supplier_price:
+        if supplier_price is not None and sp.supplier_price != supplier_price and supplier_price != DEFAULT_PRICE:
             sp.supplier_price = supplier_price
             updated_fields.append("supplier_price")
-        if maximum_capacity is not None and sp.maximum_capacity != maximum_capacity:
+        if maximum_capacity is not None and sp.maximum_capacity != maximum_capacity and maximum_capacity != DEFAULT_CAPACITY:
             sp.maximum_capacity = maximum_capacity
             updated_fields.append("maximum_capacity")
-        if lead_time_days is not None and sp.lead_time_days != lead_time_days:
+        if lead_time_days is not None and sp.lead_time_days != lead_time_days and lead_time_days != DEFAULT_LEAD_TIME:
             sp.lead_time_days = lead_time_days
             updated_fields.append("lead_time_days")
 
