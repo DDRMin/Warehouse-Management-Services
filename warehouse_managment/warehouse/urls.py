@@ -46,7 +46,7 @@ urlpatterns = [
     path('order/handle/', handle_order_status, name='handle_order_status'),
     
     # POST endpoint to add a supplier product enrty or update an existing one with supplier_price, lead_time_days or maximum_stock
-    path("/supplier-product/add_or_update/", add_supplier_product, name="update_supplier_product"),
+    path("supplier-product/add_or_update/", add_supplier_product, name="update_supplier_product"),
     
     # GET endpoint to get supplier product prices
     path('supplier-product/prices/', get_supplier_product_prices, name='get_supplier_product_prices'),

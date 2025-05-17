@@ -545,30 +545,43 @@ def add_supplier_product(request):
     supplier_id = data.get("supplier_id")
     product_id = data.get("product_id")
     supplier_price = data.get("supplier_price")
-    maximum_capacity = data.get("maximum_capacity", 0)
-    lead_time_days = data.get("lead_time_days", 5)
+    maximum_capacity = data.get("maximum_capacity")
+    lead_time_days = data.get("lead_time_days")
 
-    if not all([warehouse_id, supplier_id, product_id, supplier_price]):
-        return Response({"error": "Missing fields"}, status=status.HTTP_400_BAD_REQUEST)
-
+    # Validate required fields
+    if not all([warehouse_id, supplier_id, product_id, supplier_price, maximum_capacity, lead_time_days]):
+        return Response({"error": "Missing required fields"}, status=status.HTTP_400_BAD_REQUEST)
 
     sp, created = SupplierProduct.objects.get_or_create(
         supplier_id=supplier_id,
         product_id=product_id,
         warehouse_id=warehouse_id,
         defaults={
-            "supplier_price": Decimal(supplier_price),
+            "supplier_price": supplier_price,
             "maximum_capacity": maximum_capacity,
             "lead_time_days": lead_time_days
         }
     )
 
+    updated_fields = []
+
     if not created:
-        sp.supplier_price = Decimal(supplier_price)
-        sp.maximum_capacity = maximum_capacity
-        sp.lead_time_days = lead_time_days
-        sp.save()
-        message = "SupplierProduct updated with new price."
+        # Only update changed fields
+        if supplier_price is not None and sp.supplier_price != supplier_price:
+            sp.supplier_price = supplier_price
+            updated_fields.append("supplier_price")
+        if maximum_capacity is not None and sp.maximum_capacity != maximum_capacity:
+            sp.maximum_capacity = maximum_capacity
+            updated_fields.append("maximum_capacity")
+        if lead_time_days is not None and sp.lead_time_days != lead_time_days:
+            sp.lead_time_days = lead_time_days
+            updated_fields.append("lead_time_days")
+
+        if updated_fields:
+            sp.save()
+            message = f"SupplierProduct updated: {', '.join(updated_fields)}."
+        else:
+            message = "No changes detected. SupplierProduct not updated."
     else:
         message = "SupplierProduct created."
 
@@ -576,7 +589,6 @@ def add_supplier_product(request):
         "supplier_product_id": sp.id,
         "message": message
     }, status=status.HTTP_200_OK)
-    
     
     
     
