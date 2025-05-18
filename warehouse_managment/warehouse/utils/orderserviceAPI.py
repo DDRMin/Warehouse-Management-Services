@@ -4,8 +4,8 @@ from rest_framework import status
 from rest_framework.response import Response
 
 # Base URLs
-ORDER_SERVICE_URL = "http://localhost:8000/api/v0/orders"
-SUPPLIER_REQUEST_URL = "http://localhost:8000/api/v0/supplier-request"
+ORDER_SERVICE_URL = "http://blocktrack-backend:8000/api/v0/orders"
+SUPPLIER_REQUEST_URL = "http://blocktrack-backend:8000/api/v0/supplier-request"
 
 # Order status update
 def update_order_status(order_id, status_payload):
@@ -46,10 +46,10 @@ def update_supplier_request(request_id, status_update_payload):
     Raises:
         requests.RequestException: If the request fails
     """
-    response = requests.post(
+    response = requests.patch(
         f"{SUPPLIER_REQUEST_URL}/request/{request_id}/",
         json=status_update_payload,
-        timeout=5
+        timeout=120
     )
     response.raise_for_status()
     return response
@@ -69,7 +69,7 @@ def get_warehouse_orders(warehouse_id):
         httpx.RequestError: If there's a network error
         httpx.HTTPStatusError: If the request fails with a 4xx/5xx status
     """
-    url = f"{ORDER_SERVICE_URL}/warehouse/{warehouse_id}?minimal=True"
+    url = f"{ORDER_SERVICE_URL}/warehouse/{warehouse_id}?minimal=True&status=pending"
     response = httpx.get(url, timeout=120)
     response.raise_for_status()
     return response.json()
