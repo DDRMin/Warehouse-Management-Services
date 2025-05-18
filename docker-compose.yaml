@@ -1,14 +1,22 @@
 version: '3.9'
 
 services:
-  django-app:
+  warehouse-service:
     build: .
-    container_name: django_app
+    container_name: warehouse-service
     ports:
-      - "${PORT:-8000}:8000"
+    # needs a top level .env for the PORT to take effect here
+      - "${PORT:-8001}:8000"
     env_file:
-      - ./warehouse_managment/warehouse_managment/.env
+      - ./warehouse_managment/.env
     volumes:
       - .:/app
     working_dir: /app/warehouse_managment
     restart: unless-stopped
+    networks:
+      - scms
+
+networks:
+  scms:
+    name: scms-network
+    external : true
