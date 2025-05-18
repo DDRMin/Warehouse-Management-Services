@@ -164,7 +164,7 @@ def mark_delivery_received(request):
         )
     except WarehouseInventory.DoesNotExist:
         if status_flag == "returned":
-            inventory = None
+            return Response({"status": f"Delivery {status_flag}."}, status=status.HTTP_200_OK)
         else:
             inventory = WarehouseInventory.objects.create(
                 warehouse_id=warehouse_id,
