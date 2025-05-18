@@ -36,7 +36,7 @@ class InventoryTransaction(models.Model):
         ('ADJUSTMENT', 'Adjustment'),
     ]
 
-    inventory = models.ForeignKey(WarehouseInventory, on_delete=models.CASCADE)
+    inventory = models.ForeignKey(WarehouseInventory, on_delete=models.CASCADE, null=True, blank=True)
     transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPES)
     quantity_change = models.DecimalField(max_digits=10, decimal_places=2)
     reference_number = models.CharField(max_length=50, blank=True)
