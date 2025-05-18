@@ -9,13 +9,15 @@ from product.models import Product, ProductCategory
 from django.db.models import Sum, F
 from django.db import transaction
 from .models import Warehouse, WarehouseInventory, InventoryTransaction, SupplierProduct
-from .utils.supplier_names import SUPPLIER_NAME_MAP
+from .utils.userServiceAPI import get_supplier_name
 from .utils.mock_orders import ORDERS
 from .utils.order_accept_Req import ORDER_REQUEST
 from .serializers import (
     WarehouseSerializer,
     InventoryTransactionSerializer,
 )
+from .utils.orderserviceAPI import update_supplier_request, update_order_status, get_warehouse_orders
+import httpx
 
 @api_view(['GET'])
 def warehouse_list(request):
@@ -46,7 +48,7 @@ def warehouse_inventory_list(request):
     product_supplier_map = defaultdict(set)
     for sp in supplier_products:
         supplier_id = sp['supplier_id']
-        supplier_name = SUPPLIER_NAME_MAP.get(supplier_id, f"Supplier {supplier_id}")
+        supplier_name = get_supplier_name(supplier_id)
         product_supplier_map[sp['product_id']].add(supplier_name)
 
     product_data = defaultdict(lambda: {
@@ -80,7 +82,7 @@ def warehouse_inventory_list(request):
 
     result = {
         "warehouse_city": warehouse.warehouse_name,
-        "capacity": float(warehouse.capacity),
+        "warehouse_capacity": float(warehouse.capacity),
         "last_restocked": inventory_qs.order_by('-last_restocked').values_list('last_restocked', flat=True).first().date() if inventory_qs.exists() else None,
         "current_stock_level": round(inventory_qs.aggregate(total=Sum('quantity'))['total'] or 0, 2),
         "inventory_product_details": inventory_product_details
@@ -196,14 +198,7 @@ def mark_delivery_received(request):
             "is_defective": str(is_defective).lower(),
             "quality": quality
         }
-        response = requests.post(
-            f"http://localhost:8000/api/v0/supplier-request/request/{request_id}/",
-            json=status_update_payload,
-            timeout=5
-        )
-        response.raise_for_status()
-
-        
+        update_supplier_request(request_id, status_update_payload)
     except requests.RequestException as e:
         return Response({
             "error": f"Delivery processed, but failed to notify external system.",
@@ -305,60 +300,47 @@ def get_suppliers_by_category(request):
 
 
 
-@api_view(['GET'])  
-def order_inventory_summary(request):
-    warehouse_id = request.query_params.get('warehouse_id')
-    if not warehouse_id:
-        return Response({"error": "warehouse_id is required"}, status=400)
+# @api_view(['GET'])  
+# def order_inventory_summary(request):
+#     warehouse_id = request.query_params.get('warehouse_id')
+#     if not warehouse_id:
+#         return Response({"error": "warehouse_id is required"}, status=400)
 
-    product_ids = {p["product_id"] for order in ORDERS for p in order["products"]}
+#     product_ids = {p["product_id"] for order in ORDERS for p in order["products"]}
 
-    products = Product.objects.filter(id__in=product_ids).in_bulk()
-    product_id_to_name = {pid: prod.product_name for pid, prod in products.items()}
+#     products = Product.objects.filter(id__in=product_ids).in_bulk()
+#     product_id_to_name = {pid: prod.product_name for pid, prod in products.items()}
 
-    enriched_orders = [
-        {
-            "order_id": order["order_id"],
-            "products": [
-                {
-                    "product_name": product_id_to_name.get(p["product_id"], "Unknown Product"),
-                    "product_count": p["product_count"]
-                } for p in order["products"]
-            ]
-        } for order in ORDERS
-    ]
+#     enriched_orders = [
+#         {
+#             "order_id": order["order_id"],
+#             "products": [
+#                 {
+#                     "product_name": product_id_to_name.get(p["product_id"], "Unknown Product"),
+#                     "product_count": p["product_count"]
+#                 } for p in order["products"]
+#             ]
+#         } for order in ORDERS
+#     ]
 
-    inventory_summary_qs = WarehouseInventory.objects.filter(
-        warehouse_id=warehouse_id,
-        product_id__in=product_ids
-    ).values('product_id').annotate(available_count=Sum('quantity'))
+#     inventory_summary_qs = WarehouseInventory.objects.filter(
+#         warehouse_id=warehouse_id,
+#         product_id__in=product_ids
+#     ).values('product_id').annotate(available_count=Sum('quantity'))
 
-    inventory_summary = [
-        {
-            "product_name": product_id_to_name.get(row["product_id"], "Unknown Product"),
-            "available_count": int(row["available_count"])
-        } for row in inventory_summary_qs
-    ]
+#     inventory_summary = [
+#         {
+#             "product_name": product_id_to_name.get(row["product_id"], "Unknown Product"),
+#             "available_count": int(row["available_count"])
+#         } for row in inventory_summary_qs
+#     ]
 
-    return Response({
-        "orders": enriched_orders,
-        "inventory": inventory_summary
-    })
-
-
-
-"""pip install httpx 
+#     return Response({
+#         "orders": enriched_orders,
+#         "inventory": inventory_summary
+#     })
 
 
-import httpx
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
-from rest_framework import status
-from django.db.models import Sum
-from product.models import Product
-from warehouse.models import WarehouseInventory
-
-ORDER_SERVICE_URL = "http://order-service/api/v0/orders/warehouse/{warehouse_id}?minimal=True"
 
 @api_view(['GET'])
 def order_inventory_summary(request):
@@ -367,10 +349,8 @@ def order_inventory_summary(request):
         return Response({"error": "Missing warehouse_id in query params"}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        # 🔗 Fetch order data from order management service
-        response = httpx.get(ORDER_SERVICE_URL.format(warehouse_id=warehouse_id), timeout=5.0)
-        response.raise_for_status()
-        orders = response.json()
+        # Get orders from the order service
+        orders = get_warehouse_orders(warehouse_id)
     except httpx.RequestError as exc:
         return Response({"error": f"Request error: {exc}"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
     except httpx.HTTPStatusError as exc:
@@ -390,7 +370,7 @@ def order_inventory_summary(request):
             "products": [
                 {
                     "product_name": product_id_to_name.get(p["product_id"], "Unknown Product"),
-                    "product_count": p["product_count"]
+                    "product_count": p["count"]
                 } for p in order["products"]
             ]
         } for order in orders
@@ -413,11 +393,12 @@ def order_inventory_summary(request):
         "orders": enriched_orders,
         "inventory": inventory_summary
     }, status=status.HTTP_200_OK)
-"""
+
 
 @api_view(['POST'])
 def handle_order_status(request): #After order is accepted or rejected
     data = request.data
+    print(f"Received data: {data}")
 
     warehouse_id = data.get("warehouse_id")
     order_id = data.get("order_id")
@@ -425,6 +406,17 @@ def handle_order_status(request): #After order is accepted or rejected
 
     if status_flag == "rejected":
         print(f"Order {order_id} was rejected.")
+        try:
+            status_payload = {
+                "status": "cancelled",
+            }
+            update_order_status(order_id, status_payload)
+        except requests.RequestException as e:
+            return Response({
+                "error": "Failed to update order status.",
+                "details": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
         return Response({
             "order_id": order_id,
             "message": "Order rejected. No changes made to inventory."
@@ -464,21 +456,15 @@ def handle_order_status(request): #After order is accepted or rejected
                     "error": f"No inventory for product '{product_name}' in warehouse {warehouse_id}."
                 }, status=status.HTTP_404_NOT_FOUND)
 
-        status_payload = {
-            "status": "Accepted",
-            "warehouse_location": {
-                "latitude": warehouse.location_x,
-                "longitude": warehouse.location_y
-            }
-        }
-
         try:
-            response = requests.post(
-                f"http://localhost:8000/api/v0/orders/{order_id}/status/",
-                json=status_payload,
-                timeout=5 
-            )
-            response.raise_for_status() 
+            status_payload = {
+                "status": "accepted",
+                "warehouse_location": {
+                    "latitude": warehouse.location_x,
+                    "longitude": warehouse.location_y
+                }
+            }
+            update_order_status(order_id, status_payload)
         except requests.RequestException as e:
             return Response({
                 "error": "Order was accepted and inventory updated, but failed to notify external system.",
@@ -576,7 +562,6 @@ def add_supplier_product(request):
         "supplier_product_id": sp.id,
         "message": message
     }, status=status.HTTP_200_OK)
-    
-    
-    
-    
+
+
+

@@ -36,6 +36,8 @@ setup:
 
 run:
 	cd $(DIR) && $(MANAGE) runserver
+run-8001:
+	cd $(DIR) && $(MANAGE) runserver 8001
 
 migrate:
 	cd $(DIR) && $(MANAGE) makemigrations
