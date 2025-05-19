@@ -1,3 +1,4 @@
+import os
 import requests
 from django.core.cache import cache
 import logging
@@ -6,7 +7,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Base URL for user service
-USER_SERVICE_URL = "http://localhost:8003/api/v1"
+USER_SERVICE_URL = os.getenv("USER_SERVICE_URL", "http://localhost:8003/api/v1")
 
 def get_supplier_info(supplier_id):
     """

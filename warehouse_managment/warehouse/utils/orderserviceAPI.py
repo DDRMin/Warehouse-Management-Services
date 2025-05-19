@@ -1,11 +1,12 @@
+import os
 import requests
 import httpx
 from rest_framework import status
 from rest_framework.response import Response
 
 # Base URLs
-ORDER_SERVICE_URL = "http://blocktrack-backend:8000/api/v0/orders"
-SUPPLIER_REQUEST_URL = "http://blocktrack-backend:8000/api/v0/supplier-request"
+ORDER_SERVICE_URL = f"{os.getenv('ORDER_SERVICE_URL', 'http://localhost:8000/api/v0')}/orders"
+SUPPLIER_REQUEST_URL = f"{os.getenv('ORDER_SERVICE_URL', 'http://localhost:8000/api/v0')}/supplier-request"
 
 # Order status update
 def update_order_status(order_id, status_payload):
